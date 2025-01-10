@@ -9,6 +9,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 import json
 import os
+import tkinter as tk
+from tkinter import simpledialog, messagebox
 
 # 創建logs目錄
 if not os.path.exists('logs'):
@@ -232,14 +234,45 @@ def monitor_website(login_url, target_url, username, password):
     finally:
         driver.quit()
 
-if __name__ == '__main__':
-    # 設定登入資訊
-    LOGIN_URL = 'http://localhost:4200/login'  # 請修改為實際的登入頁面URL
-    TARGET_URL = 'http://localhost:4200/case-live/14'  # 目標監控頁面
-    USERNAME = 'admin'  # 請修改為你的帳號
-    PASSWORD = 'mktT0we1'  # 請修改為你的密碼
+def get_base_url():
+    # 創建主窗口但不顯示
+    root = tk.Tk()
+    root.withdraw()
     
-    print('開始監測網站...')
+    # 顯示輸入對話框
+    base_url = simpledialog.askstring(
+        "網站監控", 
+        "請輸入要監控的網站基礎URL\n(例如: http://localhost:4200 或 http://192.168.31.101)",
+        initialvalue="http://localhost:4200"
+    )
+    
+    # 如果用戶取消或未輸入，則退出程式
+    if not base_url:
+        messagebox.showerror("錯誤", "未輸入URL，程式將退出")
+        root.destroy()
+        exit()
+    
+    # 確保URL格式正確
+    if not base_url.startswith(('http://', 'https://')):
+        base_url = 'http://' + base_url
+    
+    # 移除結尾的斜線
+    base_url = base_url.rstrip('/')
+    
+    root.destroy()
+    return base_url
+
+if __name__ == '__main__':
+    # 獲取基礎URL
+    BASE_URL = get_base_url()
+    
+    # 設定登入資訊
+    LOGIN_URL = f'{BASE_URL}/login'
+    TARGET_URL = f'{BASE_URL}/case-live/14'
+    USERNAME = 'admin'
+    PASSWORD = 'mktT0we1'
+    
+    print(f'開始監測網站: {BASE_URL}')
     try:
         monitor_website(LOGIN_URL, TARGET_URL, USERNAME, PASSWORD)
     except KeyboardInterrupt:
