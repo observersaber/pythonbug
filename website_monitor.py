@@ -130,32 +130,50 @@ def navigate_to_page(driver, target_url):
 
 def save_error_details(error_data):
     """保存詳細錯誤信息到JSON文件"""
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f'logs/error_details_{timestamp}.json'
+    error_log_file = 'logs/stream_errors.json'
     try:
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(error_data, f, ensure_ascii=False, indent=2)
-        error_logger.error(f'詳細錯誤信息已保存到: {filename}')
+        # 讀取現有的錯誤記錄
+        existing_errors = []
+        if os.path.exists(error_log_file):
+            with open(error_log_file, 'r', encoding='utf-8') as f:
+                try:
+                    existing_errors = json.load(f)
+                except json.JSONDecodeError:
+                    existing_errors = []
+        
+        # 添加新的錯誤記錄
+        existing_errors.append(error_data)
+        
+        # 寫入更新後的錯誤記錄
+        with open(error_log_file, 'w', encoding='utf-8') as f:
+            json.dump(existing_errors, f, ensure_ascii=False, indent=2)
+        
+        error_logger.error(f'錯誤信息已添加到: {error_log_file}')
     except Exception as e:
         error_logger.error(f'保存錯誤詳情時發生錯誤: {str(e)}')
 
 def process_browser_logs(driver):
     logs = driver.get_log('performance')
+    
     for entry in logs:
         try:
             log = json.loads(entry['message'])['message']
             if 'Network.response' in log['method'] or 'Network.request' in log['method']:
-                request_id = log.get('params', {}).get('requestId')
                 if 'Network.responseReceived' == log['method']:
                     response = log['params']['response']
                     url = response['url']
-                    if '/xhr/' in url or '/api/' in url:  # 監控 XHR 和 API 請求
+                    
+                    # 監控串流檔案請求
+                    if '/Media1/live/' in url and ('.m3u8' in url or '.ts' in url):
                         status = response['status']
                         content_type = response.get('headers', {}).get('content-type', '')
                         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        file_name = url.split('/')[-1]  # 取得檔案名稱
                         
-                        if status >= 400:  # 顯示所有錯誤響應
-                            print(f'\n[{current_time}] 請求失敗!')
+                        # 只在發生錯誤時顯示和記錄
+                        if status >= 400:
+                            print(f'\n[{current_time}] 串流檔案請求失敗!')
+                            print(f'檔案: {file_name}')
                             print(f'URL: {url}')
                             print(f'狀態碼: {status}')
                             print(f'Content-Type: {content_type}')
@@ -163,35 +181,39 @@ def process_browser_logs(driver):
                             
                             error_data = {
                                 'timestamp': datetime.now().isoformat(),
+                                'file_name': file_name,
                                 'url': url,
                                 'status': status,
                                 'content_type': content_type,
                                 'headers': response.get('headers', {}),
-                                'error_type': 'HTTP_ERROR'
+                                'error_type': 'STREAM_ERROR'
                             }
-                            error_logger.error(f'載入失敗: {url} - 狀態碼: {status}')
+                            error_logger.error(f'串流檔案載入失敗: {file_name} - 狀態碼: {status}')
                             save_error_details(error_data)
                 
                 elif 'Network.loadingFailed' == log['method']:
                     params = log['params']
                     url = params.get('url', 'Unknown URL')
-                    if '/xhr/' in url or '/api/' in url:
+                    if '/Media1/live/' in url and ('.m3u8' in url or '.ts' in url):
                         error_text = params.get('errorText', 'Unknown error')
                         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        file_name = url.split('/')[-1]
                         
-                        print(f'\n[{current_time}] 請求失敗!')
-                        print(f'URL: {url}')
-                        print(f'錯誤: {error_text}')
-                        print('-' * 80)
+                        # print(f'\n[{current_time}] 串流檔案載入失敗!')
+                        # print(f'檔案: {file_name}')
+                        # print(f'URL: {url}')
+                        # print(f'錯誤: {error_text}')
+                        # print('-' * 80)
                         
                         error_data = {
                             'timestamp': datetime.now().isoformat(),
+                            'file_name': file_name,
                             'url': url,
-                            'error_type': 'LOADING_FAILED',
+                            'error_type': 'STREAM_LOADING_FAILED',
                             'error_text': error_text,
                             'params': params
                         }
-                        error_logger.error(f'請求失敗: {url} - 錯誤: {error_text}')
+                        error_logger.error(f'串流檔案載入失敗: {file_name} - 錯誤: {error_text}')
                         save_error_details(error_data)
 
         except json.JSONDecodeError:
@@ -211,14 +233,20 @@ def monitor_website(login_url, target_url, username, password):
         if not navigate_to_page(driver, target_url):
             raise Exception("無法進入目標頁面")
         
-        print("\n開始監控網路請求...")
-        print("等待請求中...")
-        print('-' * 80)
+        # print("\n開始監控串流檔案...")
+        # print("監控中 (僅顯示錯誤)...")
+        # print('-' * 80)
         
+        # 持續監控
         while True:
-            # 處理瀏覽器日誌
-            process_browser_logs(driver)
-            time.sleep(1)  # 縮短檢查間隔到1秒
+            try:
+                process_browser_logs(driver)
+                time.sleep(0.1)  # 更頻繁地檢查，因為串流檔案請求較頻繁
+            except Exception as e:
+                # print(f"\n監控過程中發生錯誤: {str(e)}")
+                # print("嘗試繼續監控...")
+                time.sleep(1)
+                continue
             
     except Exception as e:
         error_data = {
@@ -243,7 +271,7 @@ def get_base_url():
     base_url = simpledialog.askstring(
         "網站監控", 
         "請輸入要監控的網站基礎URL\n(例如: http://localhost:4200 或 http://192.168.31.101)",
-        initialvalue="http://localhost:4200"
+        initialvalue="http://192.168.31.101"
     )
     
     # 如果用戶取消或未輸入，則退出程式
